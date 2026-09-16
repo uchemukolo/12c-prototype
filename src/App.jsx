@@ -53,6 +53,33 @@ const method = [
   "Add rice and cook until done.",
   "Stir, cover and cook on low heat until ready.",
 ];
+// Method as captured for the 150-guest event batch built through the capture flow —
+// kept separate from `method`, which belongs to the pre-existing persisted Jollof Rice recipe.
+const CAPTURE_METHOD = [
+  "Wash the rice thoroughly and leave to drain.",
+  "Blend the tatashe, fresh tomatoes and Scotch bonnet.",
+  "Heat the vegetable oil, add the onions and fry the tomato paste.",
+  "Add the blended pepper and tomato mixture and cook down thoroughly.",
+  "Add the curry powder, thyme, chicken seasoning powder, bay leaves and part of the salt.",
+  "Add 8 L Chicken Stock and combine with the cooked base.",
+  "Add the rice, mix thoroughly and cover.",
+  "Cook until the rice is tender and has absorbed the sauce.",
+  "Check the seasoning and adjust the remaining salt before service.",
+];
+// Business knowledge already confirmed by Amaka — shown in Settings and after a fresh capture run.
+const LEARNED_MEANINGS_SEED = [
+  { k: "One bag of rice", v: "25 kg bag" },
+  { k: '"Big tin" of tomato paste', v: "2.2 kg tin" },
+  { k: "Tatashe", v: "Red/long pepper" },
+  { k: "One box of tatashe", v: "5 kg box" },
+  { k: "One box of fresh tomatoes", v: "6 kg box" },
+  { k: "One box of Scotch bonnet", v: "2 kg box" },
+  { k: "One drum of vegetable oil", v: "20 L drum" },
+  { k: "One jug of chicken stock", v: "2 L" },
+  { k: "One sachet of curry", v: "100 g sachet" },
+  { k: "One sachet of thyme", v: "50 g sachet" },
+  { k: "One sachet of chicken seasoning powder", v: "100 g sachet" },
+];
 
 // ---- Sub-recipes (linked components) with real composition ----
 // Each has its own ingredients; its batch cost is derived, and a per-unit cost
@@ -99,9 +126,9 @@ const NAV = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "create", label: "Create Recipe", icon: Sparkles, accent: true },
   { id: "recipes", label: "Recipes", icon: BookOpen },
+  { id: "ingredients", label: "Ingredients & Suppliers", icon: Package },
   { id: "costing", label: "Costing", icon: Calculator },
   { id: "production", label: "Production Plan", icon: CalendarRange },
-  { id: "ingredients", label: "Ingredients & Suppliers", icon: Package },
   { id: "reports", label: "Reports", icon: BarChart3 },
   { id: "locations", label: "Locations", icon: Building2 },
   { id: "settings", label: "Settings", icon: Settings },
@@ -115,9 +142,16 @@ const money = (n) => "£" + n.toFixed(2);
 const SEED_PACK_PRICES = {
   "Parboiled Rice": 18.75, "Tomatoes (800 g tin)": 1.6, "Oil": 9.0,
   "Onions": 7.0, "Seasoning Cube": 17.0, "Salt": 5.71,
+  "Rice (Parboiled)": 50.00, "Tomato Paste": 13.06, "Tatashe (Red Bell Pepper)": 21.95,
+  "Fresh Tomatoes": 11.88, "Scotch Bonnet": 14.00, "White Onions": 17.99, "Vegetable Oil": 32.99,
+  "Curry Powder": 1.50, "Thyme": 4.00, "Chicken Seasoning Powder": 1.80, "Bay Leaves": 2.50, "Cooking Salt": 0.80,
+  "Chicken Parts": 20.00, "Fresh Ginger": 4.00, "Garlic": 5.00,
 };
 const EMPTY_PACK_PRICES = {
   "Parboiled Rice": 0, "Tomatoes (800 g tin)": 0, "Oil": 0, "Onions": 0, "Seasoning Cube": 0, "Salt": 0,
+  "Rice (Parboiled)": 0, "Tomato Paste": 0, "Tatashe (Red Bell Pepper)": 0, "Fresh Tomatoes": 0, "Scotch Bonnet": 0,
+  "White Onions": 0, "Vegetable Oil": 0, "Curry Powder": 0, "Thyme": 0, "Chicken Seasoning Powder": 0, "Bay Leaves": 0, "Cooking Salt": 0,
+  "Chicken Parts": 0, "Fresh Ginger": 0, "Garlic": 0,
 };
 const SEED_LINKED_SUBS = [
   { name: "Chicken Stock", use: 5, unit: "L" },
@@ -133,7 +167,7 @@ export default function App() {
   const [onboarding, setOnboarding] = useState(false);
   const [businessProfile, setBusinessProfile] = useState({
     name: "Amaka's Kitchen", type: "Restaurant & catering", currency: "GBP (£)",
-    batchFormat: "Large tray", size: "1–10 staff", cuisine: "West African",
+    batchFormat: "Event batch", size: "1–10 staff", cuisine: "West African",
   });
 
   const [view, setView] = useState("dashboard");
@@ -141,9 +175,22 @@ export default function App() {
 
   // hero flow sub-state
   const [captureStep, setCaptureStep] = useState("choose"); // choose|captured|analysis|clarify|pricing|knowledge|standard
-  const [clarify, setClarify] = useState({ rice: "25 kg bag", tomato: "800 g tin", oil: "2.5 L" });
-  const [remember, setRemember] = useState({ rice: true, tomato: true, oil: true });
-  const [learned, setLearned] = useState([]);
+  const [clarify, setClarify] = useState({
+    rice: "25 kg bag", tomatoPaste: "2.2 kg tin", tatashe: "5 kg box", freshTomatoes: "6 kg box",
+    scotchBonnet: "500 g", oil: "10 L", chickenStock: "2 L", curry: "100 g", thyme: "50 g",
+    chickenSeasoningFull: "100 g", chickenSeasoning: "50 g", bayLeaves: "20 leaves", saltAmount: "5", saltUnit: "tbsp",
+  });
+  const [remember, setRemember] = useState({
+    rice: true, tomatoPaste: true, tatashe: true, freshTomatoes: true, scotchBonnet: true, oil: true,
+    chickenStock: true, curry: true, thyme: true, chickenSeasoning: true,
+  });
+  const [clarifyPhotos, setClarifyPhotos] = useState({});
+  const [stockSupply, setStockSupply] = useState("inhouse");
+  const [stockSourceMode, setStockSourceMode] = useState("created-new"); // "" | "linked-existing" | "created-new"
+  const [stockLinkedName, setStockLinkedName] = useState("");
+  const [stockPackSize, setStockPackSize] = useState(""); // purchased path: "1 L" | "5 L" | "Other"
+  const [stockPackSizeOther, setStockPackSizeOther] = useState("");
+  const [learned, setLearned] = useState(LEARNED_MEANINGS_SEED);
   const [approved, setApproved] = useState(false);
 
   // NEW: pricing origin — a first-time user has no catalogue, so costs start at 0.00 and are entered by hand.
@@ -192,9 +239,18 @@ export default function App() {
   const resetDemo = (mode = "seeded") => {
     setView("dashboard"); setRole("Owner / Admin");
     setCaptureStep("choose");
-    setClarify({ rice: "25 kg bag", tomato: "800 g tin", oil: "2.5 L" });
-    setRemember({ rice: true, tomato: true, oil: true });
-    setLearned([]); setApproved(false);
+    setClarify({
+      rice: "25 kg bag", tomatoPaste: "2.2 kg tin", tatashe: "5 kg box", freshTomatoes: "6 kg box",
+      scotchBonnet: "500 g", oil: "10 L", chickenStock: "2 L", curry: "100 g", thyme: "50 g",
+      chickenSeasoningFull: "100 g", chickenSeasoning: "50 g", bayLeaves: "20 leaves", saltAmount: "5", saltUnit: "tbsp",
+    });
+    setRemember({
+      rice: true, tomatoPaste: true, tatashe: true, freshTomatoes: true, scotchBonnet: true, oil: true,
+      chickenStock: true, curry: true, thyme: true, chickenSeasoning: true,
+    });
+    setClarifyPhotos({}); setStockSupply("inhouse");
+    setStockSourceMode("created-new"); setStockLinkedName(""); setStockPackSize(""); setStockPackSizeOther("");
+    setLearned(LEARNED_MEANINGS_SEED); setApproved(false);
     setPackPrices(mode === "empty" ? { ...EMPTY_PACK_PRICES } : { ...SEED_PACK_PRICES });
     setTargetPortions(150);
     setOpenRecipe(null); setDetailRecipe(null);
@@ -347,6 +403,12 @@ export default function App() {
               step={captureStep} setStep={setCaptureStep}
               clarify={clarify} setClarify={setClarify}
               remember={remember} setRemember={setRemember}
+              clarifyPhotos={clarifyPhotos} setClarifyPhotos={setClarifyPhotos}
+              stockSupply={stockSupply} setStockSupply={setStockSupply}
+              stockSourceMode={stockSourceMode} setStockSourceMode={setStockSourceMode}
+              stockLinkedName={stockLinkedName} setStockLinkedName={setStockLinkedName}
+              stockPackSize={stockPackSize} setStockPackSize={setStockPackSize}
+              stockPackSizeOther={stockPackSizeOther} setStockPackSizeOther={setStockPackSizeOther}
               learned={learned} setLearned={setLearned}
               approved={approved} setApproved={setApproved}
               packPrices={packPrices} setPackPrices={setPackPrices} pricesEntered={pricesEntered}
@@ -371,8 +433,14 @@ export default function App() {
               go={go}
             />
           )}
-          {effectiveView === "costing" && <Costing packPrices={packPrices} pricesEntered={pricesEntered} priceBumped={priceBumped} go={go} />}
-          {effectiveView === "production" && <Production scaled={scaled} target={targetPortions} setTarget={setTargetPortions} scaledCost={scaledCost} basePortions={basePortions} />}
+          {effectiveView === "costing" && (
+            <Costing packPrices={packPrices} pricesEntered={pricesEntered} priceBumped={priceBumped} go={go}
+              captureData={buildStandardCaptureData({ clarify, packPrices, subs, stockSupply, stockSourceMode, stockLinkedName, stockPackSize, stockPackSizeOther })} />
+          )}
+          {effectiveView === "production" && (
+            <Production scaled={scaled} target={targetPortions} setTarget={setTargetPortions} scaledCost={scaledCost} basePortions={basePortions}
+              captureData={buildStandardCaptureData({ clarify, packPrices, subs, stockSupply, stockSourceMode, stockLinkedName, stockPackSize, stockPackSizeOther })} />
+          )}
           {effectiveView === "ingredients" && (
             <Ingredients
               invoiceState={invoiceState} setInvoiceState={setInvoiceState}
@@ -402,7 +470,7 @@ function Landing({ onGetStarted, onLogin }) {
   const steps = [
     { n: "01", t: "Capture it however it exists", d: "Speak the recipe, type or paste it, snap the packaging, or import a spreadsheet. Combine methods in one go." },
     { n: "02", t: "I2C flags what's ambiguous", d: "“One bag of rice”, “big tin”, “half a bottle” — I2C asks a targeted question instead of guessing." },
-    { n: "03", t: "Confirm once, remember forever", d: "Your answers become business knowledge and auto-fill next time. Your kitchen's language, learned." },
+    { n: "03", t: "Confirm once, reuse next time", d: "Your answers become business knowledge and auto-fill next time. Your kitchen's language, learned." },
     { n: "04", t: "Run the whole operation", d: "A trusted standard recipe powers costing, scaling, production, reports and staff access." },
   ];
   const features = [
@@ -494,7 +562,7 @@ function Landing({ onGetStarted, onLogin }) {
       <section id="how" style={{ maxWidth: 1140, margin: "0 auto", padding: "76px 24px" }}>
         <div style={{ maxWidth: 620, marginBottom: 42 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.indigo, marginBottom: 10 }}>How it works</div>
-          <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.02em", margin: 0 }}>From a spoken sentence to a costed, standardised recipe.</h2>
+          <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.02em", margin: 0 }}>From informal culinary knowledge to a costed, standardised recipe.</h2>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 20 }}>
           {steps.map((s) => (
@@ -514,7 +582,7 @@ function Landing({ onGetStarted, onLogin }) {
         <div style={{ maxWidth: 1140, margin: "0 auto", padding: "76px 24px" }}>
           <div style={{ maxWidth: 620, marginBottom: 42 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: C.indigo, marginBottom: 10 }}>What you get</div>
-            <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.02em", margin: 0 }}>Everything a food business needs after the recipe is captured.</h2>
+            <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.02em", margin: 0 }}>From informal recipe capture to everyday kitchen operations.</h2>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 18 }}>
             {features.map(([Icon, t, d]) => (
@@ -667,9 +735,16 @@ function AuthForm({ mode, setMode, onAuth, onBack, defaultUser }) {
 }
 
 // ==================== ONBOARDING (after signup → populates Business profile) ====================
+const SELECT_FIELD_KEYS = ["type", "cuisine", "size", "batchFormat", "currency"];
+
 function Onboarding({ user, initial, onDone }) {
   const [step, setStep] = useState(0);
-  const [p, setP] = useState(initial);
+  const [p, setP] = useState(() => {
+    const blank = {};
+    SELECT_FIELD_KEYS.forEach((k) => { blank[k] = ""; });
+    return { ...initial, ...blank };
+  });
+  const [customMode, setCustomMode] = useState({});
   const set = (k, v) => setP({ ...p, [k]: v });
 
   const steps = [
@@ -678,7 +753,7 @@ function Onboarding({ user, initial, onDone }) {
       sub: "This sets up your profile. You can change any of it later in Settings.",
       fields: [
         { k: "name", label: "Business name", type: "text" },
-        { k: "type", label: "Business type", type: "select", options: ["Restaurant & catering", "Restaurant", "Catering", "Home food business", "Cloud kitchen", "Multi-site brand"] },
+        { k: "type", label: "Business type", type: "select", options: ["Restaurant & catering", "Restaurant", "Catering", "Home food business", "Cloud kitchen", "Multi-site brand", "Private chef", "Other"] },
         { k: "cuisine", label: "Main cuisine", type: "select", options: ["West African", "Caribbean", "South Asian", "Middle Eastern", "European", "Other"] },
       ],
     },
@@ -687,7 +762,7 @@ function Onboarding({ user, initial, onDone }) {
       sub: "A couple of defaults so recipes and costs match how your kitchen runs.",
       fields: [
         { k: "size", label: "Team size", type: "select", options: ["Just me", "1–10 staff", "11–30 staff", "30+ staff"] },
-        { k: "batchFormat", label: "Default batch format", type: "select", options: ["Large tray", "Medium tray", "Large pot", "Individual portions"] },
+        { k: "batchFormat", label: "Default batch format", type: "select", options: ["Large tray", "Medium tray", "Large pot", "Individual portions", "Other / Custom"], allowCustom: true },
         { k: "currency", label: "Currency", type: "select", options: ["GBP (£)", "USD ($)", "EUR (€)", "NGN (₦)"] },
       ],
     },
@@ -698,7 +773,7 @@ function Onboarding({ user, initial, onDone }) {
   return (
     <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: C.paper, fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif", color: C.ink, padding: 24 }}>
       <style>{`
-        .obfield { width:100%; border:1px solid ${C.line}; border-radius:10px; padding:11px 12px; font-size:14px; font-family:inherit; background:#fff; }
+        .obfield { box-sizing:border-box; width:100%; border:1px solid ${C.line}; border-radius:10px; padding:11px 12px; font-size:14px; font-family:inherit; background:#fff; }
         .obfield:focus { outline:none; border-color:${C.indigo}; box-shadow:0 0 0 3px ${C.indigoSoft}; }
       `}</style>
       <div className="card" style={{ width: "100%", maxWidth: 520, padding: 30 }}>
@@ -714,18 +789,35 @@ function Onboarding({ user, initial, onDone }) {
         <p style={{ margin: "0 0 22px", color: C.muted, fontSize: 13.5 }}>{cur.sub}</p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {cur.fields.map((f) => (
-            <div key={f.k}>
-              <label style={lbl}>{f.label}</label>
-              {f.type === "select" ? (
-                <select className="obfield" value={p[f.k]} onChange={(e) => set(f.k, e.target.value)}>
-                  {f.options.map((o) => <option key={o}>{o}</option>)}
-                </select>
-              ) : (
-                <input className="obfield" value={p[f.k]} onChange={(e) => set(f.k, e.target.value)} />
-              )}
-            </div>
-          ))}
+          {cur.fields.map((f) => {
+            const isCustom = f.allowCustom && customMode[f.k];
+            const selectValue = isCustom ? "Other / Custom" : p[f.k];
+            return (
+              <div key={f.k}>
+                <label style={lbl}>{f.label}</label>
+                {f.type === "select" ? (
+                  <select className="obfield" value={selectValue} onChange={(e) => {
+                    const val = e.target.value;
+                    const nowCustom = f.allowCustom && val === "Other / Custom";
+                    if (f.allowCustom) setCustomMode({ ...customMode, [f.k]: nowCustom });
+                    set(f.k, nowCustom ? "" : val);
+                  }}>
+                    <option value="" disabled>Select</option>
+                    {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input className="obfield" value={p[f.k]} onChange={(e) => set(f.k, e.target.value)} />
+                )}
+                {f.allowCustom && selectValue === "Other / Custom" && (
+                  <div style={{ marginTop: 10 }}>
+                    <label style={lbl}>Name your batch format</label>
+                    <input className="obfield" placeholder="e.g. Event batch, Full gastro, Half gastro, Full cooler, Prep batch"
+                      value={p[f.k]} onChange={(e) => set(f.k, e.target.value)} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 26 }}>
@@ -861,7 +953,7 @@ function CreateFlow(props) {
       {step === "clarify" && <Clarify {...props} />}
       {step === "pricing" && <Pricing {...props} />}
       {step === "knowledge" && <Knowledge {...props} />}
-      {step === "standard" && <Standard {...props} />}
+      {step === "standard" && <Standard {...props} captureData={buildStandardCaptureData(props)} captureBaseYield="150 portions" captureBatchFormat="Event batch" captureMethod={CAPTURE_METHOD} />}
     </div>
   );
 }
@@ -871,7 +963,7 @@ const stepIndex = (s) => ({ choose: 0, captured: 0, analysis: 1, clarify: 1, pri
 function Capture({ setStep, startImport }) {
   const [picked, setPicked] = useState("speak");
   const opts = [
-    { id: "speak", icon: Mic, t: "Speak Recipe", d: "Record the chef's instructions" },
+    { id: "speak", icon: Mic, t: "Speak Recipe", d: "Record or describe the recipe by voice." },
     { id: "type", icon: Keyboard, t: "Type or Paste", d: "Enter or paste the recipe" },
     { id: "photo", icon: Camera, t: "Upload Photo", d: "Ingredient packaging or notes" },
     { id: "import", icon: FileUp, t: "Import Existing", d: "Excel, CSV or document" },
@@ -1040,7 +1132,7 @@ function ImportFlow(props) {
 
 // Screen 3 — informal capture (voice + photo + note)
 function Captured({ setStep }) {
-  const [note, setNote] = useState("Use one bag of rice, two big tins of tomatoes, half a bottle of oil and seasoning to taste. This makes our normal large tray.");
+  const [note, setNote] = useState("For our jollof rice, use one bag of rice, two big tins of tomato paste, two boxes of tatashe, one box of fresh tomatoes, a quarter box of Scotch bonnet, 3 kg of white onions, half a drum of vegetable oil, 4 jugs of chicken stock, 1 sachet of curry, 1 sachet of thyme, half a sachet of chicken seasoning powder, some bay leaves and salt to taste. This makes our normal 150-guest event batch. First wash the rice and leave it to drain. Blend the tatashe, tomatoes and Scotch bonnet. Heat the oil, add the chopped onions and fry the tomato paste, then add the blended pepper and let everything cook down properly. Add the curry, thyme, chicken seasoning, bay leaves and some of the salt. Add the chicken stock and let it come together, then add the rice. Cover it and cook until the rice is done and has absorbed the sauce. Check the salt towards the end and adjust if needed.");
   const [photo, setPhoto] = useState({ name: "rice-25kg.jpg", url: null }); // seeded demo photo
   const fileRef = React.useRef(null);
   const onPick = (e) => {
@@ -1056,7 +1148,7 @@ function Captured({ setStep }) {
       <div style={{ display: "flex", alignItems: "center", gap: 14, background: C.indigoSoft, borderRadius: 12, padding: 14, marginBottom: 16 }}>
         <button style={{ width: 42, height: 42, borderRadius: 99, border: "none", background: C.indigo, display: "grid", placeItems: "center" }}><Play size={18} color="#fff" /></button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.indigoDeep, marginBottom: 6 }}>Spoken recipe · 00:46</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.indigoDeep, marginBottom: 6 }}>Spoken recipe · 01:33</div>
           <div style={{ height: 6, background: "#c7d2fe", borderRadius: 99, position: "relative" }}><div style={{ width: "38%", height: "100%", background: C.indigo, borderRadius: 99 }} /></div>
         </div>
       </div>
@@ -1098,8 +1190,21 @@ const subInput = { width: "100%", border: `1px solid ${C.line}`, borderRadius: 9
 
 // Screen 4 — analysis result (clear vs unclear)
 function Analysis({ setStep }) {
-  const clear = ["Onions — 3 kg", "Seasoning cube — quantity noted", "Method steps detected"];
-  const unclear = ['"one bag of rice" — bag size undefined', '"two big tins of tomatoes" — product/size unclear', '"half a bottle of oil" — quantity unclear'];
+  const clear = ["White onions — 3 kg"];
+  const unclear = [
+    '"one bag of rice" — bag size undefined',
+    '"two big tins of tomato paste" — tin size undefined',
+    '"two boxes of tatashe" — ingredient meaning and box size undefined',
+    '"one box of fresh tomatoes" — box size undefined',
+    '"quarter box of Scotch bonnet" — box size undefined',
+    '"half a drum of vegetable oil" — drum size undefined',
+    '"four jugs of chicken stock" — jug size undefined',
+    '"one sachet of curry" — sachet size undefined',
+    '"one sachet of thyme" — sachet size undefined',
+    '"half sachet of chicken seasoning powder" — sachet size undefined',
+    '"some bay leaves" — quantity undefined',
+    '"salt to taste" — quantity undefined',
+  ];
   return (
     <div className="card" style={{ padding: 26, maxWidth: 820, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 800 }}>Analysis complete</h2>
@@ -1116,45 +1221,145 @@ function Analysis({ setStep }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22 }}>
         <button className="gbtn" onClick={() => setStep("captured")}>Back</button>
-        <button className="pbtn" onClick={() => setStep("clarify")}>Resolve 3 items <ArrowRight size={16} /></button>
+        <button className="pbtn" onClick={() => setStep("clarify")}>Resolve {unclear.length} items <ArrowRight size={16} /></button>
       </div>
     </div>
   );
 }
 
 // Screen 5 + 6 — clarification with "Remember this" (the differentiator)
-function Clarify({ clarify, setClarify, remember, setRemember, setStep }) {
+function halveWeight(s) {
+  const m = /([\d.]+)\s*(g|kg)/i.exec(s || "");
+  if (!m) return "";
+  const half = parseFloat(m[1]) / 2;
+  const unit = m[2].toLowerCase();
+  return `${half % 1 === 0 ? half : half.toFixed(1)} ${unit}`;
+}
+
+function ClarifyPhoto({ id, clarifyPhotos, setClarifyPhotos }) {
+  const fileRef = React.useRef(null);
+  const photo = clarifyPhotos[id];
+  const onPick = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    setClarifyPhotos({ ...clarifyPhotos, [id]: { name: f.name, url } });
+  };
+  return (
+    <div style={{ marginTop: 10 }}>
+      <input ref={fileRef} type="file" accept="image/*" onChange={onPick} style={{ display: "none" }} />
+      <button onClick={() => fileRef.current && fileRef.current.click()}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px dashed ${C.indigo}`, borderRadius: 8, padding: "6px 12px", background: photo ? C.indigoSoft : "#fff", color: C.indigo, fontSize: 12.5, fontWeight: 600 }}>
+        <Camera size={14} /> {photo ? `Photo added: ${photo.name}` : "Take / upload packaging photo"}
+      </button>
+    </div>
+  );
+}
+
+function Clarify({ clarify, setClarify, remember, setRemember, clarifyPhotos, setClarifyPhotos, setStep }) {
   const Q = [
-    { id: "rice", q: '"one bag of rice"', sub: "Which size bag do you usually use?", opts: ["25 kg bag", "50 kg bag", "10 kg bag"] },
-    { id: "tomato", q: '"two big tins of tomatoes"', sub: "Which tomato product do you mean?", opts: ["800 g tin", "400 g tin", "2.5 kg catering tin"] },
-    { id: "oil", q: '"half a bottle of oil"', sub: "How much is half a bottle?", opts: ["2.5 L", "1 L", "5 L"] },
+    { id: "rice", field: "rice", q: '"one bag of rice"', sub: "Which size bag do you usually use?", opts: ["25 kg bag", "50 kg bag", "10 kg bag"] },
+    { id: "tomatoPaste", field: "tomatoPaste", q: '"two big tins of tomato paste"', sub: "Which tomato paste tin size do you mean?", opts: ["2.2 kg tin", "800 g tin", "400 g tin"] },
+    { id: "tatashe", field: "tatashe", q: '"two boxes of tatashe"', sub: "Tatashe (red bell pepper) — which box size do you mean?", opts: ["5 kg box", "10 kg box", "2.5 kg box"] },
+    { id: "freshTomatoes", field: "freshTomatoes", q: '"one box of fresh tomatoes"', sub: "Which box size do you mean?", opts: ["6 kg box", "10 kg box", "3 kg box"] },
+    { id: "scotchBonnet", field: "scotchBonnet", q: '"quarter box of Scotch bonnet"', sub: "How much is a quarter box?", opts: ["500 g", "1 kg", "250 g"] },
+    { id: "oil", field: "oil", q: '"half a drum of vegetable oil"', sub: "How much is half a drum?", opts: ["10 L", "12.5 L", "20 L"] },
+    { id: "chickenStock", field: "chickenStock", q: '"four jugs of chicken stock"', sub: "What size is the jug you use?", opts: ["1 L", "2 L", "500 ml"] },
+    { id: "curry", field: "curry", q: '"one sachet of curry"', sub: "What size is the sachet you use?", opts: ["50 g", "100 g", "250 g", "Other / Enter weight"] },
+    { id: "thyme", field: "thyme", q: '"one sachet of thyme"', sub: "What size is the sachet you use?", opts: ["25 g", "50 g", "100 g", "Other / Enter weight"] },
+    { id: "chickenSeasoning", field: "chickenSeasoningFull", deriveHalf: true, q: '"half sachet of chicken seasoning powder"', sub: "What size is one full sachet?", opts: ["50 g", "100 g", "250 g", "Other / Enter weight"] },
+    { id: "bayLeaves", field: "bayLeaves", q: '"some bay leaves"', sub: "How many bay leaves do you normally use for this 150-guest batch?", opts: ["10 leaves", "15 leaves", "20 leaves", "Other / Enter number"], photo: false, remember: false },
   ];
+  const isOtherOpt = (o) => /^Other/.test(o);
+  const updateField = (item, value) => {
+    const next = { ...clarify, [item.field]: value };
+    if (item.deriveHalf) next.chickenSeasoning = halveWeight(value);
+    setClarify(next);
+  };
   return (
     <div style={{ maxWidth: 820, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 800 }}>Smart clarification</h2>
       <p style={{ margin: "0 0 18px", color: C.muted, fontSize: 14 }}>Confirm each item. Turn on “Remember” to reuse it automatically next time — this is your business knowledge.</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {Q.map((item) => (
-          <div key={item.id} className="card" style={{ padding: 18 }}>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>{item.q}</div>
-            <div style={{ color: C.muted, fontSize: 13, margin: "3px 0 12px" }}>{item.sub}</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {item.opts.map((o) => {
-                const on = clarify[item.id] === o;
-                return (
-                  <button key={o} onClick={() => setClarify({ ...clarify, [item.id]: o })}
-                    style={{ padding: "8px 14px", borderRadius: 9, border: `1.5px solid ${on ? C.indigo : C.line}`, background: on ? C.indigoSoft : "#fff", fontWeight: 600, fontSize: 13, color: on ? C.indigoDeep : C.ink }}>
-                    {on && <Check size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />}{o}
-                  </button>
-                );
-              })}
+        {Q.map((item) => {
+          const presetOpts = item.opts.filter((o) => !isOtherOpt(o));
+          const currentVal = clarify[item.field];
+          const hasOther = item.opts.some(isOtherOpt);
+          const isCustom = hasOther && !presetOpts.includes(currentVal);
+          const showPhoto = item.photo !== false;
+          const showRemember = item.remember !== false;
+          return (
+            <div key={item.id} className="card" style={{ padding: 18 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{item.q}</div>
+              <div style={{ color: C.muted, fontSize: 13, margin: "3px 0 12px" }}>{item.sub}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {item.opts.map((o) => {
+                  const isOther = isOtherOpt(o);
+                  const on = isOther ? isCustom : currentVal === o;
+                  return (
+                    <button key={o} onClick={() => updateField(item, isOther ? "" : o)}
+                      style={{ padding: "8px 14px", borderRadius: 9, border: `1.5px solid ${on ? C.indigo : C.line}`, background: on ? C.indigoSoft : "#fff", fontWeight: 600, fontSize: 13, color: on ? C.indigoDeep : C.ink }}>
+                      {on && <Check size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />}{o}
+                    </button>
+                  );
+                })}
+              </div>
+              {isCustom && (
+                <input autoFocus placeholder={item.id === "bayLeaves" ? "e.g. 12 leaves" : "e.g. 70 g"} value={currentVal}
+                  onChange={(e) => updateField(item, e.target.value)}
+                  style={{ marginTop: 10, width: "100%", border: `1.5px solid ${C.indigo}`, borderRadius: 8, padding: "8px 11px", fontSize: 13.5, fontFamily: "inherit" }} />
+              )}
+              {item.deriveHalf && (
+                <div style={{ marginTop: 10, fontSize: 12.5, color: C.indigoDeep, background: C.indigoSoft, borderRadius: 8, padding: "8px 10px" }}>
+                  I2C will use <b>{clarify.chickenSeasoning || "—"}</b> (half of the {clarify.chickenSeasoningFull || "confirmed"} sachet) for this recipe — calculated automatically.
+                </div>
+              )}
+              {showPhoto && <ClarifyPhoto id={item.id} clarifyPhotos={clarifyPhotos} setClarifyPhotos={setClarifyPhotos} />}
+              {showRemember && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 13, fontSize: 13, fontWeight: 600, color: C.ink, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!remember[item.id]} onChange={(e) => setRemember({ ...remember, [item.id]: e.target.checked })} style={{ width: 16, height: 16, accentColor: C.indigo }} />
+                  Remember this for my business
+                </label>
+              )}
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 13, fontSize: 13, fontWeight: 600, color: C.ink, cursor: "pointer" }}>
-              <input type="checkbox" checked={remember[item.id]} onChange={(e) => setRemember({ ...remember, [item.id]: e.target.checked })} style={{ width: 16, height: 16, accentColor: C.indigo }} />
-              Remember this for my business
-            </label>
+          );
+        })}
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>"salt to taste"</div>
+          <div style={{ color: C.muted, fontSize: 13, margin: "3px 0 12px" }}>To make this recipe reproducible, approximately how much salt do you normally use for this 150-guest batch?</div>
+          <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12.5, color: C.muted, fontWeight: 600 }}>Amount</span>
+              <input type="number" min="0" step="0.1" value={clarify.saltAmount}
+                onChange={(e) => setClarify({ ...clarify, saltAmount: e.target.value })}
+                style={{ width: 80, border: `1.5px solid ${C.line}`, borderRadius: 8, padding: "7px 9px", fontSize: 13.5, fontWeight: 600, fontFamily: "inherit" }} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12.5, color: C.muted, fontWeight: 600 }}>Unit</span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {["g", "kg", "tbsp", "Other"].map((u) => {
+                  const on = clarify.saltUnit === u;
+                  return (
+                    <button key={u} onClick={() => setClarify({ ...clarify, saltUnit: u })}
+                      style={{ padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${on ? C.indigo : C.line}`, background: on ? C.indigoSoft : "#fff", fontWeight: 600, fontSize: 13, color: on ? C.indigoDeep : C.ink }}>
+                      {on && <Check size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />}{u}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {clarify.saltUnit === "Other" && (
+              <input autoFocus placeholder="e.g. pinches" value={clarify.saltUnitOther || ""}
+                onChange={(e) => setClarify({ ...clarify, saltUnitOther: e.target.value })}
+                style={{ width: 130, border: `1.5px solid ${C.indigo}`, borderRadius: 8, padding: "7px 9px", fontSize: 13.5, fontFamily: "inherit" }} />
+            )}
           </div>
-        ))}
+          <div style={{ marginTop: 12, fontSize: 12, color: C.muted, display: "flex", alignItems: "flex-start", gap: 6 }}>
+            <Info size={13} style={{ marginTop: 1 }} />
+            This will be saved for this recipe so another team member can reproduce the same batch.
+          </div>
+        </div>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
         <button className="gbtn" onClick={() => setStep("analysis")}>Back</button>
@@ -1165,22 +1370,153 @@ function Clarify({ clarify, setClarify, remember, setRemember, setStep }) {
 }
 
 // NEW STEP — Ingredient costs (pricing origin for a first-time user with no catalogue)
-function Pricing({ packPrices, setPackPrices, setStep }) {
+function toLitres(s) {
+  const m = /([\d.]+)\s*(ml|l)\b/i.exec(s || "");
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  return /ml/i.test(m[2]) ? n / 1000 : n;
+}
+function parseLeavesCount(s) {
+  const m = /([\d.]+)/.exec(s || "");
+  return m ? parseFloat(m[1]) : 0;
+}
+function saltGrams(amount, unit) {
+  const n = parseFloat(amount) || 0;
+  if (unit === "kg") return n * 1000;
+  if (unit === "tbsp") return n * 18; // approx grams per tablespoon of salt
+  return n; // "g" or "Other" — best effort
+}
+function scaleWeightStr(s, factor) {
+  const m = /([\d.]+)\s*(kg|g)\b/i.exec(s || "");
+  if (!m) return s;
+  const val = Math.round(parseFloat(m[1]) * factor * 100) / 100;
+  return `${val} ${m[2].toLowerCase()}`;
+}
+function packSizeLitres(choice, other) {
+  if (choice === "1 L") return 1;
+  if (choice === "5 L") return 5;
+  if (choice === "Other") return parseFloat(other) || 0;
+  return 0;
+}
+// Scripted output of the "Create sub-recipe" flow — this prototype's costing values
+// are pre-scripted demo data, consistent with the rest of the capture flow.
+const SUB_RECIPE_YIELD_L = 10;
+const SUB_RECIPE_BATCH_COST = 31.41;
+
+// Builds the ingredient/cost rows for the Standard-recipe review at the end of the
+// capture flow, from the same clarify/pricing state as the Ingredient costs step —
+// kept separate from baseIngredients/USE_FRAC, which belong to the pre-existing
+// persisted Jollof Rice recipe shown elsewhere (Recipes, Costing, Reports).
+function buildStandardCaptureData({ clarify, packPrices, subs, stockSupply, stockSourceMode, stockLinkedName, stockPackSize, stockPackSizeOther }) {
+  const parseWeight = (s, factor) => {
+    const m = /([\d.]+)\s*(kg|g)\b/i.exec(s || "");
+    if (!m) return { amount: 0, unit: "g" };
+    return { amount: Math.round(parseFloat(m[1]) * factor * 100) / 100, unit: m[2].toLowerCase() };
+  };
+  const priceFrac = (name, frac) => (packPrices[name] || 0) * frac;
+  const saltUnitLabel = clarify.saltUnit === "Other" ? (clarify.saltUnitOther || "unit") : clarify.saltUnit;
+  const bayLeavesCount = parseLeavesCount(clarify.bayLeaves);
+  const rice = parseWeight(clarify.rice, 1);
+  const tomatoPaste = parseWeight(clarify.tomatoPaste, 2);
+  const tatashe = parseWeight(clarify.tatashe, 2);
+  const freshTomatoes = parseWeight(clarify.freshTomatoes, 1);
+  const scotchBonnet = parseWeight(clarify.scotchBonnet, 1);
+  const curry = parseWeight(clarify.curry, 1);
+  const thyme = parseWeight(clarify.thyme, 1);
+  const chickenSeasoning = parseWeight(clarify.chickenSeasoning, 1);
+
+  const rows = [
+    { name: "Parboiled Rice", amount: rice.amount, unit: rice.unit, cost: priceFrac("Rice (Parboiled)", 1) },
+    { name: "Tomato Paste", amount: tomatoPaste.amount, unit: tomatoPaste.unit, cost: priceFrac("Tomato Paste", 2) },
+    { name: "Tatashe", amount: tatashe.amount, unit: tatashe.unit, cost: priceFrac("Tatashe (Red Bell Pepper)", 2) },
+    { name: "Fresh Tomatoes", amount: freshTomatoes.amount, unit: freshTomatoes.unit, cost: priceFrac("Fresh Tomatoes", 1) },
+    { name: "Scotch Bonnet", amount: scotchBonnet.amount, unit: scotchBonnet.unit, cost: priceFrac("Scotch Bonnet", 0.25) },
+    { name: "White Onions", amount: 3, unit: "kg", cost: priceFrac("White Onions", 0.3) },
+    { name: "Vegetable Oil", amount: toLitres(clarify.oil), unit: "L", cost: priceFrac("Vegetable Oil", 0.5) },
+    { name: "Curry Powder", amount: curry.amount, unit: curry.unit, cost: priceFrac("Curry Powder", 1) },
+    { name: "Thyme", amount: thyme.amount, unit: thyme.unit, cost: priceFrac("Thyme", 1) },
+    { name: "Chicken Seasoning Powder", amount: chickenSeasoning.amount, unit: chickenSeasoning.unit, cost: priceFrac("Chicken Seasoning Powder", 0.5) },
+    { name: "Bay Leaves", amount: bayLeavesCount, unit: "leaves", cost: priceFrac("Bay Leaves", bayLeavesCount / 50) },
+    { name: "Salt", amount: parseFloat(clarify.saltAmount) || 0, unit: saltUnitLabel, cost: priceFrac("Cooking Salt", saltGrams(clarify.saltAmount, clarify.saltUnit) / 750) },
+  ];
+
+  const totalStockL = toLitres(clarify.chickenStock) * 4;
+  const subRecipeCostPerL = SUB_RECIPE_BATCH_COST / SUB_RECIPE_YIELD_L;
+  const linkedExistingUnitCost = stockLinkedName && subs && subs[stockLinkedName] ? subUnitCost(subs[stockLinkedName]) : 0;
+  const stockSourced = stockSupply === "inhouse" && (stockSourceMode === "created-new" || stockSourceMode === "linked-existing");
+  const stockUnitCost = stockSourceMode === "created-new" ? subRecipeCostPerL : stockSourceMode === "linked-existing" ? linkedExistingUnitCost : 0;
+  const stockPackL = packSizeLitres(stockPackSize, stockPackSizeOther);
+  const stockCost = stockSourced ? stockUnitCost * totalStockL
+    : stockSupply === "purchased" && stockPackL > 0 ? ((packPrices["Chicken Stock"] || 0) / stockPackL) * totalStockL
+    : 0;
+  rows.push({ name: "Chicken Stock", amount: totalStockL, unit: "L", cost: stockCost, isSub: true });
+
+  const total = rows.reduce((s, r) => s + Math.round(r.cost * 100) / 100, 0);
+
+  const stockSub = stockSourced ? (
+    stockSourceMode === "created-new"
+      ? { name: "Chicken Stock", batchYield: SUB_RECIPE_YIELD_L, batchUnit: "L", batchCost: SUB_RECIPE_BATCH_COST, usedL: totalStockL, usedCost: stockCost }
+      : { name: stockLinkedName, batchYield: subs[stockLinkedName].yieldQty, batchUnit: subs[stockLinkedName].yieldUnit, batchCost: subBatchCost(subs[stockLinkedName]), usedL: totalStockL, usedCost: stockCost }
+  ) : null;
+
+  return { rows, total, stockSub };
+}
+
+function Pricing({
+  packPrices, setPackPrices, clarify, subs,
+  stockSupply, setStockSupply,
+  stockSourceMode, setStockSourceMode,
+  stockLinkedName, setStockLinkedName,
+  stockPackSize, setStockPackSize,
+  stockPackSizeOther, setStockPackSizeOther,
+  setStep,
+}) {
+  const [sourceModal, setSourceModal] = useState(null); // null | "choose" | "create"
+  const [linkPicker, setLinkPicker] = useState(false);
+
   // pack context: how much a pack costs and how much the recipe uses, so we can show derived batch cost.
+  const saltUnitLabel = clarify.saltUnit === "Other" ? (clarify.saltUnitOther || "unit") : clarify.saltUnit;
   const packMeta = {
-    "Parboiled Rice":       { pack: "25 kg bag",   use: "25 kg",       useFrac: 1 },
-    "Tomatoes (800 g tin)": { pack: "800 g tin",   use: "2 tins",      useFrac: 2 },
-    "Oil":                  { pack: "5 L bottle",  use: "2.5 L",       useFrac: 0.5 },
-    "Onions":               { pack: "10 kg sack",  use: "3 kg",        useFrac: 0.3 },
-    "Seasoning Cube":       { pack: "100 pcs box", use: "5 pcs",       useFrac: 0.05 },
-    "Salt":                 { pack: "1 kg bag",    use: "35 g",        useFrac: 0.035 },
+    "Rice (Parboiled)":          { pack: clarify.rice,          use: scaleWeightStr(clarify.rice, 1),          useFrac: 1 },
+    "Tomato Paste":               { pack: clarify.tomatoPaste,   use: scaleWeightStr(clarify.tomatoPaste, 2),   useFrac: 2 },
+    "Tatashe (Red Bell Pepper)":  { pack: clarify.tatashe,       use: scaleWeightStr(clarify.tatashe, 2),       useFrac: 2 },
+    "Fresh Tomatoes":             { pack: clarify.freshTomatoes, use: scaleWeightStr(clarify.freshTomatoes, 1), useFrac: 1 },
+    "Scotch Bonnet":              { pack: "2 kg box",            use: clarify.scotchBonnet,                     useFrac: 0.25 },
+    "White Onions":                { pack: "10 kg sack",          use: "3 kg",                                    useFrac: 0.3 },
+    "Vegetable Oil":              { pack: "20 L drum",           use: clarify.oil,                              useFrac: 0.5 },
+    "Curry Powder":                { pack: `${clarify.curry} sachet`, use: clarify.curry,                        useFrac: 1 },
+    "Thyme":                      { pack: `${clarify.thyme} sachet`,  use: clarify.thyme,                        useFrac: 1 },
+    "Chicken Seasoning Powder":   { pack: `${clarify.chickenSeasoningFull} sachet`, use: clarify.chickenSeasoning, useFrac: 0.5 },
+    "Bay Leaves":                  { pack: "50-leaf pack",        use: clarify.bayLeaves,                        useFrac: parseLeavesCount(clarify.bayLeaves) / 50 },
+    "Cooking Salt":                { pack: "750 g pack",          use: `${clarify.saltAmount} ${saltUnitLabel}`, useFrac: saltGrams(clarify.saltAmount, clarify.saltUnit) / 750 },
   };
   const names = Object.keys(packMeta);
   const set = (n, val) => setPackPrices({ ...packPrices, [n]: val === "" ? 0 : Math.max(0, parseFloat(val) || 0) });
   const lineCost = (n) => (packPrices[n] || 0) * packMeta[n].useFrac;
-  const total = names.reduce((s, n) => s + lineCost(n), 0);
-  const anyEntered = names.some((n) => packPrices[n] > 0);
-  const allEntered = names.every((n) => packPrices[n] > 0);
+
+  // Chicken Stock is costed differently depending on how it's sourced, so it's kept
+  // out of packMeta and rendered as its own block (the "sub-recipe layer").
+  const jugL = toLitres(clarify.chickenStock);
+  const totalStockL = jugL * 4;
+  const subRecipeCostPerL = SUB_RECIPE_BATCH_COST / SUB_RECIPE_YIELD_L;
+  const linkedExistingUnitCost = stockLinkedName && subs && subs[stockLinkedName] ? subUnitCost(subs[stockLinkedName]) : 0;
+  const stockUnitCost = stockSourceMode === "created-new" ? subRecipeCostPerL
+    : stockSourceMode === "linked-existing" ? linkedExistingUnitCost
+    : 0;
+  const stockPackL = packSizeLitres(stockPackSize, stockPackSizeOther);
+  const stockSourced = stockSupply === "inhouse" && (stockSourceMode === "created-new" || stockSourceMode === "linked-existing");
+  const stockPriced = stockSourced || (stockSupply === "purchased" && stockPackL > 0 && (packPrices["Chicken Stock"] || 0) > 0);
+  const stockCost = stockSourced ? stockUnitCost * totalStockL
+    : stockSupply === "purchased" && stockPackL > 0 ? ((packPrices["Chicken Stock"] || 0) / stockPackL) * totalStockL
+    : 0;
+
+  const total = names.reduce((s, n) => s + Math.round(lineCost(n) * 100) / 100, 0) + Math.round(stockCost * 100) / 100;
+  const anyEntered = names.some((n) => packPrices[n] > 0) || stockPriced;
+  const allEntered = names.every((n) => packPrices[n] > 0) && stockPriced;
+
+  const openSourceChoice = () => { setSourceModal("choose"); setLinkPicker(false); };
+  const linkExisting = (name) => { setStockLinkedName(name); setStockSourceMode("linked-existing"); setSourceModal(null); setLinkPicker(false); };
+  const saveNewSubRecipe = () => { setStockSourceMode("created-new"); setSourceModal(null); };
 
   return (
     <div style={{ maxWidth: 820, margin: "0 auto" }}>
@@ -1189,20 +1525,11 @@ function Pricing({ packPrices, setPackPrices, setStep }) {
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Ingredient costs</h2>
       </div>
       <p style={{ margin: "0 0 4px", color: C.muted, fontSize: 14 }}>
-        You don't have any ingredient prices saved yet, so costs start at £0.00.
-        Enter the pack price you pay for each item and I2C works out the recipe cost. You can also do this later.
+        Prices below are pulled from your ingredient catalogue where available — edit any of them here.
+        {!stockPriced && " Chicken Stock still needs a costing decision."}
       </p>
 
-      {!anyEntered && (
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.indigoSoft, border: `1px solid #c7d2fe`, borderRadius: 10, padding: "10px 13px", margin: "12px 0 16px" }}>
-          <Info size={15} color={C.indigo} style={{ marginTop: 1 }} />
-          <div style={{ fontSize: 12.5, color: C.indigoDeep }}>
-            First recipe? Prices you enter here are saved to Ingredients &amp; Suppliers, so next time they'll be filled in automatically.
-          </div>
-        </div>
-      )}
-
-      <div className="card" style={{ padding: 4, marginTop: anyEntered ? 14 : 0 }}>
+      <div className="card" style={{ padding: 4, marginTop: 14 }}>
         <table>
           <thead><tr style={{ color: C.muted, fontSize: 11, fontWeight: 700, textAlign: "left" }}>
             <th style={th}>INGREDIENT</th><th style={th}>PACK</th><th style={th}>USED IN RECIPE</th>
@@ -1234,8 +1561,88 @@ function Pricing({ packPrices, setPackPrices, setStep }) {
                 </tr>
               );
             })}
+            <tr>
+              <td colSpan={5} style={{ padding: "14px 10px 10px", borderTop: `1px solid ${C.line}` }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>Chicken Stock — {totalStockL} L</div>
+                {stockSourced ? (
+                  <div style={{ fontSize: 12.5, color: C.muted }}>
+                    Sourced: {stockSourceMode === "created-new" ? "House-made · Sub-recipe" : `Linked sub-recipe (${stockLinkedName})`}
+                    {" · "}
+                    <button onClick={openSourceChoice} style={{ background: "none", border: "none", color: C.indigo, fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 12.5 }}>Change</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 8 }}>How is this stock supplied?</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {[["purchased", "Store-bought / purchased"], ["inhouse", "Made in house"]].map(([val, label]) => {
+                        const on = stockSupply === val;
+                        return (
+                          <button key={val} onClick={() => { setStockSupply(val); if (val === "inhouse") openSourceChoice(); }}
+                            style={{ padding: "8px 14px", borderRadius: 9, border: `1.5px solid ${on ? C.indigo : C.line}`, background: on ? C.indigoSoft : "#fff", fontWeight: 600, fontSize: 13, color: on ? C.indigoDeep : C.ink }}>
+                            {on && <Check size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />}{label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </td>
+            </tr>
+            {stockSupply === "purchased" && (
+              <tr className="rowline">
+                <td style={{ ...td, fontWeight: 600 }}>Chicken Stock (store-bought)</td>
+                <td style={td}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {["1 L", "5 L", "Other"].map((opt) => {
+                      const on = stockPackSize === opt;
+                      return (
+                        <button key={opt} onClick={() => setStockPackSize(opt)}
+                          style={{ padding: "5px 10px", borderRadius: 7, border: `1.5px solid ${on ? C.indigo : C.line}`, background: on ? C.indigoSoft : "#fff", fontSize: 12, fontWeight: 600, color: on ? C.indigoDeep : C.ink }}>
+                          {opt === "Other" ? "Other" : `${opt} carton`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {stockPackSize === "Other" && (
+                    <input placeholder="litres" value={stockPackSizeOther} onChange={(e) => setStockPackSizeOther(e.target.value)}
+                      style={{ marginTop: 6, width: 90, border: `1.5px solid ${C.indigo}`, borderRadius: 7, padding: "4px 8px", fontSize: 12.5, fontFamily: "inherit" }} />
+                  )}
+                </td>
+                <td style={{ ...td, color: C.muted }}>{totalStockL} L</td>
+                <td style={td}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, border: `1.5px solid ${(packPrices["Chicken Stock"] || 0) > 0 ? C.indigo : C.line}`, borderRadius: 8, padding: "5px 9px", width: 120, background: "#fff" }}>
+                    <span style={{ color: C.muted, fontSize: 13 }}>£</span>
+                    <input
+                      type="number" min="0" step="0.01" inputMode="decimal"
+                      value={packPrices["Chicken Stock"] ? packPrices["Chicken Stock"] : ""}
+                      placeholder="0.00"
+                      onChange={(e) => set("Chicken Stock", e.target.value)}
+                      style={{ border: "none", outline: "none", width: "100%", fontSize: 13.5, fontWeight: 600, color: C.ink }}
+                    />
+                  </div>
+                </td>
+                <td style={{ ...td, textAlign: "right", fontWeight: 700, color: stockCost > 0 ? C.ink : C.muted }}>
+                  {money(stockCost)}
+                </td>
+              </tr>
+            )}
+            {stockSourced && (
+              <tr className="rowline">
+                <td style={{ ...td, fontWeight: 600 }}>Chicken Stock</td>
+                <td style={{ ...td, color: C.muted }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.indigoSoft, color: C.indigoDeep, borderRadius: 999, padding: "3px 9px", fontSize: 11.5, fontWeight: 700 }}>
+                    <Link2 size={11} /> {stockSourceMode === "created-new" ? "House-made · Sub-recipe" : "Linked sub-recipe"}
+                  </span>
+                </td>
+                <td style={{ ...td, color: C.muted }}>{totalStockL} L</td>
+                <td style={{ ...td, color: C.muted }}>—</td>
+                <td style={{ ...td, textAlign: "right", fontWeight: 700, color: C.ink }}>
+                  {money(stockCost)}
+                </td>
+              </tr>
+            )}
             <tr style={{ borderTop: `2px solid ${C.ink}` }}>
-              <td style={{ ...td, fontWeight: 800 }} colSpan={4}>ESTIMATED BATCH COST (100 portions)</td>
+              <td style={{ ...td, fontWeight: 800 }} colSpan={4}>ESTIMATED BATCH COST (150-guest event batch)</td>
               <td style={{ ...td, textAlign: "right", fontWeight: 800, color: anyEntered ? C.indigo : C.muted }}>{money(total)}</td>
             </tr>
           </tbody>
@@ -1243,7 +1650,7 @@ function Pricing({ packPrices, setPackPrices, setStep }) {
       </div>
 
       <div style={{ fontSize: 12, color: C.muted, marginTop: 10 }}>
-        {allEntered ? "All prices entered — recipe costing is ready." : anyEntered ? "Cost updates as you enter prices. Remaining items stay at £0.00 until priced." : "Every cost is £0.00 until you add a price."}
+        {allEntered ? "All prices entered — recipe costing is ready." : anyEntered ? "Cost updates as you enter prices. Chicken Stock stays uncosted until you choose how it's supplied." : "Every cost is £0.00 until you add a price."}
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
@@ -1253,17 +1660,96 @@ function Pricing({ packPrices, setPackPrices, setStep }) {
           <button className="pbtn" onClick={() => setStep("knowledge")}>Continue <ArrowRight size={16} /></button>
         </div>
       </div>
+
+      {sourceModal === "choose" && (
+        <Modal onClose={() => setSourceModal(null)}>
+          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 2 }}>Chicken Stock</div>
+          <div style={{ fontSize: 13.5, color: C.muted, marginBottom: 18 }}>{totalStockL} L is used in this Jollof Rice recipe.</div>
+          <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 12 }}>How would you like to cost it?</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button onClick={() => setLinkPicker(!linkPicker)} className="card" style={{ textAlign: "left", padding: 14, cursor: "pointer", border: `1.5px solid ${linkPicker ? C.indigo : C.line}` }}>
+              <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 7 }}><Link2 size={15} color={C.indigo} /> Link existing sub-recipe</div>
+              <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>Use a Chicken Stock recipe already saved in your recipe library.</div>
+            </button>
+            {linkPicker && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingLeft: 6 }}>
+                {subs && Object.keys(subs).length ? Object.keys(subs).map((name) => (
+                  <button key={name} onClick={() => linkExisting(name)}
+                    style={{ padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${C.line}`, background: "#fff", fontSize: 12.5, fontWeight: 600 }}>
+                    {name}
+                  </button>
+                )) : (
+                  <div style={{ fontSize: 12.5, color: C.muted }}>No saved sub-recipes yet.</div>
+                )}
+              </div>
+            )}
+            <button onClick={() => setSourceModal("create")} className="card" style={{ textAlign: "left", padding: 14, cursor: "pointer", border: `1.5px solid ${C.line}` }}>
+              <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 7 }}><Plus size={15} color={C.indigo} /> Create new sub-recipe</div>
+              <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>Add the ingredients and yield for your house-made Chicken Stock.</div>
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {sourceModal === "create" && (
+        <Modal onClose={() => setSourceModal(null)}>
+          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 16 }}>Create sub-recipe</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label style={lbl}>Name</label>
+              <input defaultValue="Chicken Stock" style={subInput} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>Batch yield</label>
+                <input type="number" defaultValue="8" style={subInput} />
+              </div>
+              <div style={{ width: 90 }}>
+                <label style={lbl}>Unit</label>
+                <input defaultValue="L" disabled style={{ ...subInput, background: C.paper, color: C.muted }} />
+              </div>
+            </div>
+          </div>
+          <div style={{ marginTop: 18, background: C.indigoSoft, borderRadius: 10, padding: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+              <span style={{ color: C.muted }}>Finished yield</span><span style={{ fontWeight: 700 }}>{SUB_RECIPE_YIELD_L} L</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+              <span style={{ color: C.muted }}>Estimated batch cost</span><span style={{ fontWeight: 700 }}>{money(SUB_RECIPE_BATCH_COST)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+              <span style={{ color: C.muted }}>Estimated cost per litre</span><span style={{ fontWeight: 700 }}>{money(subRecipeCostPerL)}</span>
+            </div>
+            <div style={{ height: 1, background: "#c7d2fe", margin: "12px 0" }} />
+            <div style={{ fontSize: 12.5, color: C.indigoDeep, marginBottom: 4 }}>Jollof uses {totalStockL} L, therefore:</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: C.indigoDeep }}>I2C calculates = {money(subRecipeCostPerL * totalStockL)}</div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
+            <button className="gbtn" onClick={() => setSourceModal("choose")}>Back</button>
+            <button className="pbtn" onClick={saveNewSubRecipe}>Save &amp; link to Jollof Rice <ArrowRight size={16} /></button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
 
 // Screen 6 — Business Knowledge saved
 function Knowledge({ clarify, remember, learned, setLearned, setStep }) {
-  const rows = [
+  const allRows = [
     { id: "rice", k: "One bag of rice", v: clarify.rice },
-    { id: "tomato", k: "Big tin (tomatoes)", v: clarify.tomato },
-    { id: "oil", k: "Half a bottle of oil", v: clarify.oil },
-  ].filter((r) => remember[r.id]);
+    { id: "tomatoPaste", k: '"Big tin" of tomato paste', v: clarify.tomatoPaste },
+    { id: "tatasheMeaning", k: "Tatashe", v: "Red bell / long red pepper", always: true },
+    { id: "tatashe", k: "One box of tatashe", v: clarify.tatashe },
+    { id: "freshTomatoes", k: "One box of fresh tomatoes", v: clarify.freshTomatoes },
+    { id: "scotchBonnet", k: "One box of Scotch bonnet", v: "2 kg box" },
+    { id: "oil", k: "One drum of vegetable oil", v: "20 L drum" },
+    { id: "chickenStock", k: "One stock jug", v: clarify.chickenStock },
+    { id: "curry", k: "One curry sachet", v: clarify.curry },
+    { id: "thyme", k: "One thyme sachet", v: clarify.thyme },
+    { id: "chickenSeasoning", k: "One chicken-seasoning sachet", v: clarify.chickenSeasoningFull },
+  ];
+  const rows = allRows.filter((r) => r.always || remember[r.id]);
 
   React.useEffect(() => { setLearned(rows); /* eslint-disable-next-line */ }, []);
 
@@ -1274,18 +1760,31 @@ function Knowledge({ clarify, remember, learned, setLearned, setStep }) {
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Business knowledge updated</h2>
       </div>
       <p style={{ margin: "0 0 18px", color: C.muted, fontSize: 14 }}>
-        These meanings are specific to your business and will be reused automatically in future recipes.
+        These confirmed meanings are specific to your business and can be reused in future recipes.
       </p>
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
-        {rows.map((r, i) => (
-          <div key={r.id} style={{ display: "flex", alignItems: "center", padding: "13px 16px", borderTop: i ? `1px solid ${C.line}` : "none" }}>
-            <div style={{ width: 30, height: 30, borderRadius: 8, background: "#f5f3ff", display: "grid", placeItems: "center", marginRight: 12 }}><Check size={15} color={C.violet} /></div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{r.k}</div>
-            <ArrowRight size={15} color={C.muted} style={{ margin: "0 12px" }} />
-            <div style={{ fontWeight: 700, fontSize: 14, color: C.violet }}>{r.v}</div>
-            <span className="chip" style={{ marginLeft: "auto", color: C.violet, background: "#f5f3ff" }}>Saved</span>
-          </div>
-        ))}
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: C.paper }}>
+              <th style={{ textAlign: "left", padding: "11px 16px", fontSize: 12, fontWeight: 700, color: C.muted, borderBottom: `1px solid ${C.line}` }}>Confirmed business meaning</th>
+              <th style={{ width: 90, borderBottom: `1px solid ${C.line}` }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id} style={{ borderTop: i ? `1px solid ${C.line}` : "none" }}>
+                <td style={{ padding: "13px 16px" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{r.k}</span>
+                  <ArrowRight size={14} color={C.muted} style={{ margin: "0 8px", verticalAlign: "-2px" }} />
+                  <span style={{ fontWeight: 700, fontSize: 14, color: C.violet, textDecoration: "underline", textDecorationColor: "#ddd6fe" }}>{r.v}</span>
+                </td>
+                <td style={{ padding: "13px 16px", textAlign: "right" }}>
+                  <span className="chip" style={{ color: C.violet, background: "#f5f3ff" }}>Saved</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22 }}>
         <button className="gbtn" onClick={() => setStep("clarify")}>Back</button>
@@ -1302,24 +1801,34 @@ const USE_FRAC = {
   "Onions": 0.3, "Seasoning Cube": 0.05, "Salt": 0.035,
 };
 
-function Standard({ title, onBack, approved, setApproved, packPrices = {}, pricesEntered, subs, setSubs, linkedSubs, setLinkedSubs, basePortions = 100, setBasePortions, go }) {
+function Standard({ title, onBack, approved, setApproved, packPrices = {}, pricesEntered, subs, setSubs, linkedSubs, setLinkedSubs, basePortions = 100, setBasePortions, go, captureData, captureBaseYield, captureBatchFormat, captureMethod }) {
   const [openSub, setOpenSub] = useState(null);   // sub-recipe name being viewed/edited
   const [addOpen, setAddOpen] = useState(false);  // add-sub-recipe picker
   const [creating, setCreating] = useState(false); // create-new-sub form inside the picker
   const [newSub, setNewSub] = useState({ name: "", yieldQty: "", yieldUnit: "L", use: "", ing: "", price: "" });
   const [flash, setFlash] = useState(null);       // "recosted" banner after a propagated change
   const [editYield, setEditYield] = useState(false);
-  const [steps, setSteps] = useState(method.slice());
+  const [steps, setSteps] = useState(() => (captureMethod ? captureMethod.slice() : method.slice()));
   const [editMethod, setEditMethod] = useState(false);
+  const [addStepMode, setAddStepMode] = useState(null); // null | "speak" | "type" | "photo" | "import"
+  const [recordingStep, setRecordingStep] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const methodPhotoRef = React.useRef(null);
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [staffAccess, setStaffAccess] = useState({
+    ingredients: true, method: true, yield: true, allergens: true, costs: false, supplierPrices: false,
+  });
   const recipeName = title || "Jollof Rice";
   const yieldFactor = basePortions / 100; // amounts in baseIngredients are defined for 100 portions
+  const isCapture = !!captureData;
 
   const ingCost = baseIngredients.reduce((s, r) => s + (packPrices[r.name] || 0) * (USE_FRAC[r.name] || 0) * yieldFactor, 0);
   const lineCost = (name) => (packPrices[name] || 0) * (USE_FRAC[name] || 0) * yieldFactor;
   // each linked sub contributes (its unit cost) × (amount this recipe uses) × yield factor
   const subCostOf = (l) => subUnitCost(subs[l.name]) * l.use * yieldFactor;
   const subsCost = linkedSubs.reduce((s, l) => s + subCostOf(l), 0);
-  const total = ingCost + subsCost;
+  const total = isCapture ? captureData.total : ingCost + subsCost;
   const pct = (c) => (total > 0 ? ((c / total) * 100).toFixed(1) : "0.0");
 
   // Save an edited sub-recipe price → triggers parent recost + flag
@@ -1376,7 +1885,9 @@ function Standard({ title, onBack, approved, setApproved, packPrices = {}, price
           <div style={{ display: "flex", gap: 22, marginBottom: 14, fontSize: 13, alignItems: "flex-start" }}>
             <div>
               <span style={{ color: C.muted }}>Base yield</span>
-              {editYield ? (
+              {isCapture ? (
+                <div style={{ fontWeight: 700, marginTop: 2 }}>{captureBaseYield}</div>
+              ) : editYield ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                   <input type="number" min="1" step="1" value={basePortions}
                     onChange={(e) => setBasePortions && setBasePortions(Math.max(1, parseInt(e.target.value) || 1))}
@@ -1393,10 +1904,10 @@ function Standard({ title, onBack, approved, setApproved, packPrices = {}, price
             </div>
             <div title="The container or format one batch is cooked and served in">
               <span style={{ color: C.muted }}>Batch format</span>
-              <div style={{ fontWeight: 700, marginTop: 2 }}>1 large tray = {basePortions} portions</div>
+              <div style={{ fontWeight: 700, marginTop: 2 }}>{isCapture ? captureBatchFormat : `1 large tray = ${basePortions} portions`}</div>
             </div>
           </div>
-          {!pricesEntered && (
+          {!isCapture && !pricesEntered && (
             <div style={{ display: "flex", gap: 8, alignItems: "center", background: C.amberSoft, border: "1px solid #fde68a", borderRadius: 10, padding: "9px 12px", marginBottom: 12 }}>
               <Info size={14} color={C.amber} />
               <div style={{ fontSize: 12.5, color: "#92400e" }}>
@@ -1409,7 +1920,20 @@ function Standard({ title, onBack, approved, setApproved, packPrices = {}, price
               <th style={th}>INGREDIENT</th><th style={th}>AMOUNT</th><th style={th}>UNIT</th><th style={{ ...th, textAlign: "right" }}>COST</th><th style={{ ...th, textAlign: "right" }}>%</th>
             </tr></thead>
             <tbody>
-              {baseIngredients.map((r) => {
+              {isCapture ? captureData.rows.map((r) => {
+                const amt = r.amount;
+                return (
+                  <tr key={r.name} className="rowline" style={r.isSub ? { background: "#faf9ff" } : undefined}>
+                    <td style={{ ...td, fontWeight: 600 }}>
+                      {r.isSub ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Link2 size={13} color={C.violet} />{r.name}</span> : r.name}
+                    </td>
+                    <td style={td}>{Number.isInteger(amt) ? amt : amt.toFixed(2)}</td>
+                    <td style={{ ...td, color: C.muted }}>{r.unit}</td>
+                    <td style={{ ...td, textAlign: "right", color: r.cost > 0 ? C.ink : C.muted }}>{money(r.cost)}</td>
+                    <td style={{ ...td, textAlign: "right", color: C.muted }}>{pct(r.cost)}%</td>
+                  </tr>
+                );
+              }) : baseIngredients.map((r) => {
                 const c = lineCost(r.name);
                 const amt = r.amount * yieldFactor;
                 return (
@@ -1422,8 +1946,8 @@ function Standard({ title, onBack, approved, setApproved, packPrices = {}, price
                   </tr>
                 );
               })}
-              {/* linked sub-recipes appear as costed lines in the parent */}
-              {linkedSubs.map((l) => {
+              {/* linked sub-recipes appear as costed lines in the parent (capture mode already includes Chicken Stock inline above) */}
+              {!isCapture && linkedSubs.map((l) => {
                 const c = subCostOf(l);
                 return (
                   <tr key={l.name} className="rowline" style={{ background: "#faf9ff" }}>
@@ -1466,34 +1990,119 @@ function Standard({ title, onBack, approved, setApproved, packPrices = {}, price
               ))}
             </div>
             {editMethod && (
-              <button className="gbtn" style={{ marginTop: 10, padding: "6px 11px", fontSize: 12.5, borderStyle: "dashed" }} onClick={() => setSteps([...steps, ""])}><Plus size={13} /> Add step</button>
+              <>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                  <button className="gbtn" style={{ padding: "6px 11px", fontSize: 12.5, borderStyle: "dashed" }} onClick={() => setSteps([...steps, ""])}><Plus size={13} /> Add step</button>
+                  <button className="gbtn" style={{ padding: "6px 11px", fontSize: 12.5, background: addStepMode === "speak" ? C.indigoSoft : undefined }} onClick={() => setAddStepMode(addStepMode === "speak" ? null : "speak")}><Mic size={13} /> Speak</button>
+                  <button className="gbtn" style={{ padding: "6px 11px", fontSize: 12.5, background: addStepMode === "type" ? C.indigoSoft : undefined }} onClick={() => setAddStepMode(addStepMode === "type" ? null : "type")}><Keyboard size={13} /> Type / Paste</button>
+                  <button className="gbtn" style={{ padding: "6px 11px", fontSize: 12.5, background: addStepMode === "photo" ? C.indigoSoft : undefined }} onClick={() => setAddStepMode(addStepMode === "photo" ? null : "photo")}><Camera size={13} /> Upload Photo</button>
+                  <button className="gbtn" style={{ padding: "6px 11px", fontSize: 12.5, background: addStepMode === "import" ? C.indigoSoft : undefined }} onClick={() => setAddStepMode(addStepMode === "import" ? null : "import")}><FileUp size={13} /> Import</button>
+                </div>
+
+                {addStepMode === "speak" && (
+                  <div style={{ marginTop: 10, background: C.indigoSoft, borderRadius: 10, padding: 14 }}>
+                    {!recordingStep ? (
+                      <button className="pbtn" onClick={() => setRecordingStep(true)}><Mic size={14} /> Start recording</button>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 9, height: 9, borderRadius: 99, background: C.red }} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: C.indigoDeep }}>Listening…</span>
+                        <button className="pbtn" style={{ marginLeft: "auto" }} onClick={() => {
+                          setSteps([...steps, "Check the seasoning and adjust to taste."]);
+                          setRecordingStep(false); setAddStepMode(null);
+                        }}>Stop &amp; add step</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {addStepMode === "type" && (
+                  <div style={{ marginTop: 10 }}>
+                    <textarea rows={4} value={pasteText} onChange={(e) => setPasteText(e.target.value)}
+                      placeholder="Type or paste one or more steps, one per line…"
+                      style={{ width: "100%", border: `1px solid ${C.line}`, borderRadius: 8, padding: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                      <button className="gbtn" onClick={() => { setAddStepMode(null); setPasteText(""); }}>Cancel</button>
+                      <button className="pbtn" onClick={() => {
+                        const lines = pasteText.split("\n").map((l) => l.trim()).filter(Boolean);
+                        if (lines.length) setSteps([...steps, ...lines]);
+                        setPasteText(""); setAddStepMode(null);
+                      }}>Add steps</button>
+                    </div>
+                  </div>
+                )}
+
+                {addStepMode === "photo" && (
+                  <div style={{ marginTop: 10, background: C.indigoSoft, borderRadius: 10, padding: 14 }}>
+                    <input ref={methodPhotoRef} type="file" accept="image/*" style={{ display: "none" }}
+                      onChange={(e) => { if (e.target.files && e.target.files[0]) { setSteps([...steps, "Method detected from photo — review and edit."]); setAddStepMode(null); } }} />
+                    <button className="pbtn" onClick={() => methodPhotoRef.current && methodPhotoRef.current.click()}><Camera size={14} /> Choose photo</button>
+                    <div style={{ fontSize: 12, color: C.indigoDeep, marginTop: 8 }}>Upload a photo of a handwritten or printed recipe and I2C will detect the steps.</div>
+                  </div>
+                )}
+
+                {addStepMode === "import" && (
+                  <div style={{ marginTop: 10, background: C.indigoSoft, borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 12.5, color: C.indigoDeep, marginBottom: 10 }}>Import method steps from an existing recipe.</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {["Egusi Soup", "Fried Rice", "Moi Moi"].map((n) => (
+                        <button key={n} className="gbtn" style={{ padding: "6px 11px", fontSize: 12.5, background: "#fff" }}
+                          onClick={() => { setSteps([...steps, `Imported from ${n} — review and edit.`]); setAddStepMode(null); }}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>Linked sub-recipes</div>
-              <button className="gbtn" style={{ padding: "5px 10px" }} onClick={() => setAddOpen(true)}><Plus size={13} /> Add</button>
-            </div>
-            {linkedSubs.length === 0 && <div style={{ fontSize: 12.5, color: C.muted, padding: "6px 0" }}>No components linked yet.</div>}
-            {linkedSubs.map((l) => (
-              <div key={l.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: `1px solid ${C.line}` }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{l.name}</div>
-                  <div style={{ fontSize: 12, color: C.muted }}>{l.use} {l.unit} · {money(subCostOf(l))} · batch {money(subBatchCost(subs[l.name]))}</div>
+          {isCapture ? (
+            <div className="card" style={{ padding: 18 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Linked sub-recipes</div>
+              {!captureData.stockSub && <div style={{ fontSize: 12.5, color: C.muted, padding: "6px 0" }}>No components linked yet.</div>}
+              {captureData.stockSub && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>{captureData.stockSub.name}</div>
+                    <div style={{ fontSize: 12, color: C.muted }}>{captureData.stockSub.batchYield} {captureData.stockSub.batchUnit} batch · {money(captureData.stockSub.batchCost)}</div>
+                    <div style={{ fontSize: 12, color: C.muted }}>{captureData.stockSub.usedL} {captureData.stockSub.batchUnit} used · {money(captureData.stockSub.usedCost)} allocated</div>
+                  </div>
+                  <button className="gbtn" style={{ padding: "5px 10px" }}>Open</button>
                 </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button className="gbtn" style={{ padding: "5px 10px" }} onClick={() => setOpenSub(l.name)}>Open</button>
-                </div>
+              )}
+              <div style={{ marginTop: 12, display: "flex", alignItems: "flex-start", gap: 8, background: C.indigoSoft, borderRadius: 10, padding: "10px 12px" }}>
+                <Link2 size={15} color={C.indigo} style={{ marginTop: 1 }} />
+                <div style={{ fontSize: 12, color: C.indigoDeep }}>Open a component and change a price — every recipe that uses it is recosted automatically.</div>
               </div>
-            ))}
-            <div style={{ marginTop: 12, display: "flex", alignItems: "flex-start", gap: 8, background: C.indigoSoft, borderRadius: 10, padding: "10px 12px" }}>
-              <Link2 size={15} color={C.indigo} style={{ marginTop: 1 }} />
-              <div style={{ fontSize: 12, color: C.indigoDeep }}>Open a component and change a price — every recipe that uses it is recosted automatically.</div>
             </div>
-          </div>
+          ) : (
+            <div className="card" style={{ padding: 18 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>Linked sub-recipes</div>
+                <button className="gbtn" style={{ padding: "5px 10px" }} onClick={() => setAddOpen(true)}><Plus size={13} /> Add</button>
+              </div>
+              {linkedSubs.length === 0 && <div style={{ fontSize: 12.5, color: C.muted, padding: "6px 0" }}>No components linked yet.</div>}
+              {linkedSubs.map((l) => (
+                <div key={l.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: `1px solid ${C.line}` }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>{l.name}</div>
+                    <div style={{ fontSize: 12, color: C.muted }}>{l.use} {l.unit} · {money(subCostOf(l))} · batch {money(subBatchCost(subs[l.name]))}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button className="gbtn" style={{ padding: "5px 10px" }} onClick={() => setOpenSub(l.name)}>Open</button>
+                  </div>
+                </div>
+              ))}
+              <div style={{ marginTop: 12, display: "flex", alignItems: "flex-start", gap: 8, background: C.indigoSoft, borderRadius: 10, padding: "10px 12px" }}>
+                <Link2 size={15} color={C.indigo} style={{ marginTop: 1 }} />
+                <div style={{ fontSize: 12, color: C.indigoDeep }}>Open a component and change a price — every recipe that uses it is recosted automatically.</div>
+              </div>
+            </div>
+          )}
 
           <div className="card" style={{ padding: 18 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Actions</div>
@@ -1501,6 +2110,14 @@ function Standard({ title, onBack, approved, setApproved, packPrices = {}, price
               <button className="gbtn">Edit</button>
               <button className="gbtn">Duplicate</button>
               <button className="gbtn"><Download size={14} /> Export</button>
+              <button className="gbtn" onClick={() => setPrintOpen(true)}><Printer size={14} /> Print recipe card</button>
+            </div>
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Staff access</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ fontSize: 12.5, color: C.muted }}>Kitchen staff can view this recipe</div>
+                <button className="gbtn" style={{ padding: "5px 10px", flexShrink: 0 }} onClick={() => setStaffModalOpen(true)}>Manage access</button>
+              </div>
             </div>
             {!approved ? (
               <button className="pbtn" style={{ width: "100%", justifyContent: "center", marginTop: 12 }} onClick={() => setApproved(true)}><Check size={16} /> Approve recipe</button>
@@ -1513,6 +2130,83 @@ function Standard({ title, onBack, approved, setApproved, packPrices = {}, price
           </div>
         </div>
       </div>
+
+      {/* Staff access — which parts of this recipe kitchen staff can see */}
+      {staffModalOpen && (
+        <Modal onClose={() => setStaffModalOpen(false)}>
+          <h3 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 800 }}>Staff access — {recipeName}</h3>
+          <p style={{ margin: "0 0 16px", color: C.muted, fontSize: 13.5 }}>Choose what kitchen staff can see for this recipe.</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {[
+              ["ingredients", "Ingredients & quantities"],
+              ["method", "Preparation method"],
+              ["yield", "Yield & batch format"],
+              ["allergens", "Allergens"],
+              ["costs", "Ingredient costs"],
+              ["supplierPrices", "Supplier & purchase prices"],
+            ].map(([key, label]) => (
+              <label key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 4px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>
+                <input type="checkbox" checked={staffAccess[key]} onChange={(e) => setStaffAccess({ ...staffAccess, [key]: e.target.checked })} style={{ width: 16, height: 16, accentColor: C.indigo }} />
+                {label}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+            <button className="pbtn" onClick={() => setStaffModalOpen(false)}><Check size={15} /> Save access</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Print recipe card — staff-facing operational version, no costs or supplier prices */}
+      {printOpen && (
+        <Modal onClose={() => setPrintOpen(false)}>
+          <h3 style={{ margin: "0 0 2px", fontSize: 17, fontWeight: 800 }}>{recipeName}</h3>
+          <div style={{ margin: "0 0 18px", color: C.muted, fontSize: 13.5 }}>
+            {isCapture ? captureBaseYield : `${basePortions} portions`} · {isCapture ? captureBatchFormat : "Standard batch"} · v1.0
+          </div>
+
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Ingredients &amp; quantities</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 16 }}>
+            {(isCapture ? captureData.rows.filter((r) => !r.isSub) : baseIngredients.map((r) => ({ name: r.name, amount: r.amount * yieldFactor, unit: r.unit })))
+              .map((r) => (
+                <div key={r.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, padding: "4px 0", borderBottom: `1px solid ${C.line}` }}>
+                  <span>{r.name}</span><span style={{ fontWeight: 600 }}>{Number.isInteger(r.amount) ? r.amount : r.amount.toFixed(2)} {r.unit}</span>
+                </div>
+              ))}
+          </div>
+
+          {(() => {
+            const stockRow = isCapture ? captureData.rows.find((r) => r.isSub) : linkedSubs.find((l) => l.name === "Chicken Stock");
+            if (!stockRow) return null;
+            const amt = isCapture ? stockRow.amount : stockRow.use * yieldFactor;
+            const unit = isCapture ? stockRow.unit : stockRow.unit;
+            return (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><Link2 size={13} color={C.violet} /> Linked Chicken Stock quantity</div>
+                <div style={{ fontSize: 13.5 }}>{Number.isInteger(amt) ? amt : amt.toFixed(2)} {unit}</div>
+              </div>
+            );
+          })()}
+
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Method</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+            {steps.map((m, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, fontSize: 13, lineHeight: 1.5 }}>
+                <span style={{ fontWeight: 700, color: C.indigo, flexShrink: 0 }}>{i + 1}.</span><span>{m}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Yield / batch information</div>
+          <div style={{ fontSize: 13.5, marginBottom: 4 }}>{isCapture ? captureBaseYield : `${basePortions} portions`}</div>
+          <div style={{ fontSize: 13.5, color: C.muted, marginBottom: 18 }}>{isCapture ? captureBatchFormat : "Standard batch"}</div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button className="gbtn" onClick={() => setPrintOpen(false)}>Close</button>
+            <button className="pbtn"><Printer size={15} /> Print</button>
+          </div>
+        </Modal>
+      )}
 
       {/* Drill-down: view/edit a sub-recipe (demonstrates dependency) */}
       {openSub && (
@@ -1672,8 +2366,7 @@ function Recipes({ go, onOpen }) {
     ["Egusi Soup", "Needs Clarification", "—", "—", "—"],
     ["Fried Rice", "Approved", "v2.1", "80 portions", "£24.15"],
     ["Moi Moi", "Approved", "v1.3", "120 portions", "£18.70"],
-    ["Chicken Stock", "Approved · sub-recipe", "v1.0", "10 L", "£6.70"],
-    ["Tomato Base", "Approved · sub-recipe", "v1.1", "6 kg", "£6.10"],
+    ["Chicken Stock", "Approved · sub-recipe", "v1.0", "10 L", "£31.41"],
   ];
   return (
     <div>
@@ -1705,12 +2398,16 @@ function Recipes({ go, onOpen }) {
 }
 
 // ==================== SCREEN 9: COSTING ====================
-function Costing({ packPrices = {}, pricesEntered, priceBumped, go }) {
+function Costing({ packPrices = {}, pricesEntered, priceBumped, go, captureData }) {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const lineCost = (name) => (packPrices[name] || 0) * (USE_FRAC[name] || 0);
-  const total = baseIngredients.reduce((s, r) => s + lineCost(r.name), 0);
-  const perPortion = total / BASE_PORTIONS;
+  const total = captureData ? captureData.total : baseIngredients.reduce((s, r) => s + lineCost(r.name), 0);
+  const basePortionsForCost = captureData ? 150 : BASE_PORTIONS;
+  const perPortion = total / basePortionsForCost;
   const pct = (name) => (total > 0 ? (lineCost(name) / total) * 100 : 0);
+  const breakdownRows = captureData
+    ? captureData.rows.map((r) => ({ name: r.name, amountLabel: `${r.amount} ${r.unit}`, cost: r.cost, isSub: r.isSub })).sort((a, b) => b.cost - a.cost)
+    : baseIngredients.map((r) => ({ name: r.name, amountLabel: `${r.amount} ${r.unit}`, cost: lineCost(r.name) }));
 
   return (
     <div>
@@ -1725,7 +2422,7 @@ function Costing({ packPrices = {}, pricesEntered, priceBumped, go }) {
       )}
 
       <div style={{ display: "flex", gap: 14, marginBottom: 18 }}>
-        <Metric label="Batch cost (100 portions)" value={money(total)} />
+        <Metric label={captureData ? "Batch cost (150 portions)" : "Batch cost (100 portions)"} value={money(total)} />
         <Metric label="Cost per portion" value={money(perPortion)} />
         <Metric label="Cost change (30 days)" value={pricesEntered ? "+8.6%" : "—"} tone={pricesEntered ? "amber" : undefined} />
       </div>
@@ -1737,13 +2434,15 @@ function Costing({ packPrices = {}, pricesEntered, priceBumped, go }) {
           </div>
           <table>
             <tbody>
-              {baseIngredients.map((r) => {
-                const c = lineCost(r.name), p = pct(r.name);
+              {breakdownRows.map((r) => {
+                const p = total > 0 ? (r.cost / total) * 100 : 0;
                 return (
                   <tr key={r.name} className="rowline">
-                    <td style={{ ...td, fontWeight: 600 }}>{r.name}</td>
-                    <td style={{ ...td, color: C.muted }}>{r.amount} {r.unit}</td>
-                    <td style={{ ...td, textAlign: "right", fontWeight: 600, color: c > 0 ? C.ink : C.muted }}>{money(c)}</td>
+                    <td style={{ ...td, fontWeight: 600 }}>
+                      {r.isSub ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Link2 size={13} color={C.violet} />{r.name}</span> : r.name}
+                    </td>
+                    <td style={{ ...td, color: C.muted }}>{r.amountLabel}</td>
+                    <td style={{ ...td, textAlign: "right", fontWeight: 600, color: r.cost > 0 ? C.ink : C.muted }}>{money(r.cost)}</td>
                     <td style={{ ...td, textAlign: "right", color: C.muted, width: 120 }}>
                       <div style={{ background: C.line, borderRadius: 99, height: 6 }}><div style={{ width: p + "%", background: C.indigo, height: "100%", borderRadius: 99 }} /></div>
                     </td>
@@ -1760,8 +2459,17 @@ function Costing({ packPrices = {}, pricesEntered, priceBumped, go }) {
           </div>
           {pricesEntered ? (
             <>
-              <div style={{ fontSize: 13.5, color: C.ink, marginBottom: 6 }}>Tomatoes (800 g tin) price increased by <b>8%</b>.</div>
-              <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>+£2.70 batch cost impact on this recipe.</div>
+              {captureData ? (
+                <>
+                  <div style={{ fontSize: 13.5, color: C.ink, marginBottom: 6 }}>Parboiled Rice price increased by <b>8.7%</b>.</div>
+                  <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>+£4.00 batch cost impact on this recipe.</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13.5, color: C.ink, marginBottom: 6 }}>Tomatoes (800 g tin) price increased by <b>8%</b>.</div>
+                  <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>+£2.70 batch cost impact on this recipe.</div>
+                </>
+              )}
               <button className="gbtn" style={{ width: "100%", justifyContent: "center" }}>View affected recipes <ChevronRight size={15} /></button>
             </>
           ) : (
@@ -1779,15 +2487,17 @@ function Costing({ packPrices = {}, pricesEntered, priceBumped, go }) {
               <th style={th}>INGREDIENT</th><th style={th}>AMOUNT</th><th style={{ ...th, textAlign: "right" }}>BATCH</th><th style={{ ...th, textAlign: "right" }}>PER PORTION</th><th style={{ ...th, textAlign: "right" }}>%</th>
             </tr></thead>
             <tbody>
-              {baseIngredients.map((r) => {
-                const c = lineCost(r.name);
+              {breakdownRows.map((r) => {
+                const p = total > 0 ? (r.cost / total) * 100 : 0;
                 return (
                   <tr key={r.name} className="rowline">
-                    <td style={{ ...td, fontWeight: 600 }}>{r.name}</td>
-                    <td style={{ ...td, color: C.muted }}>{r.amount} {r.unit}</td>
-                    <td style={{ ...td, textAlign: "right", color: c > 0 ? C.ink : C.muted }}>{money(c)}</td>
-                    <td style={{ ...td, textAlign: "right", color: C.muted }}>{money(c / BASE_PORTIONS)}</td>
-                    <td style={{ ...td, textAlign: "right", color: C.muted }}>{pct(r.name).toFixed(1)}%</td>
+                    <td style={{ ...td, fontWeight: 600 }}>
+                      {r.isSub ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Link2 size={13} color={C.violet} />{r.name}</span> : r.name}
+                    </td>
+                    <td style={{ ...td, color: C.muted }}>{r.amountLabel}</td>
+                    <td style={{ ...td, textAlign: "right", color: r.cost > 0 ? C.ink : C.muted }}>{money(r.cost)}</td>
+                    <td style={{ ...td, textAlign: "right", color: C.muted }}>{money(r.cost / basePortionsForCost)}</td>
+                    <td style={{ ...td, textAlign: "right", color: C.muted }}>{p.toFixed(1)}%</td>
                   </tr>
                 );
               })}
@@ -1810,7 +2520,13 @@ function Costing({ packPrices = {}, pricesEntered, priceBumped, go }) {
 }
 
 // ==================== SCREEN 10: PRODUCTION / SCALING ====================
-function Production({ scaled, target, setTarget, scaledCost, basePortions = 100 }) {
+function Production({ scaled, target, setTarget, scaledCost, basePortions = 100, captureData }) {
+  const isCapture = !!captureData;
+  const captureBasePortions = 150;
+  const captureScaledCost = isCapture ? captureData.total * (target / captureBasePortions) : 0;
+  const captureScaled = isCapture ? captureData.rows.map((r) => ({ ...r, s: r.amount * (target / captureBasePortions) })) : [];
+  const fmtCapture = (n) => (Number.isInteger(n) ? n : (Math.round(n * 100) / 100).toFixed(2));
+
   return (
     <div>
       <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800 }}>Production Plan — Jollof Rice</h1>
@@ -1818,7 +2534,7 @@ function Production({ scaled, target, setTarget, scaledCost, basePortions = 100 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16 }}>
         <div className="card" style={{ padding: 20, alignSelf: "start" }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Scale recipe</div>
-          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 16 }}>Base yield: {basePortions} portions · {money(BASE_COST)}</div>
+          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 16 }}>Base yield: {isCapture ? captureBasePortions : basePortions} portions · {money(isCapture ? captureData.total : BASE_COST)}</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
             <div style={{ fontSize: 34, fontWeight: 800, color: C.indigo }}>{target}</div><div style={{ color: C.muted, fontWeight: 600 }}>portions</div>
           </div>
@@ -1826,7 +2542,7 @@ function Production({ scaled, target, setTarget, scaledCost, basePortions = 100 
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.muted }}><span>20</span><span>400</span></div>
           <div style={{ marginTop: 16, background: C.indigoSoft, borderRadius: 10, padding: "12px 14px" }}>
             <div style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>Scaled batch cost</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: C.indigoDeep }}>{money(scaledCost)}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: C.indigoDeep }}>{money(isCapture ? captureScaledCost : scaledCost)}</div>
           </div>
           <button className="pbtn" style={{ width: "100%", justifyContent: "center", marginTop: 14 }}><CalendarRange size={16} /> Create production plan</button>
         </div>
@@ -1835,10 +2551,18 @@ function Production({ scaled, target, setTarget, scaledCost, basePortions = 100 
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Scaled ingredients ({target} portions)</div>
           <table>
             <thead><tr style={{ color: C.muted, fontSize: 11, fontWeight: 700, textAlign: "left" }}>
-              <th style={th}>INGREDIENT</th><th style={{ ...th, textAlign: "right" }}>BASE ({basePortions})</th><th style={{ ...th, textAlign: "right" }}>SCALED</th>
+              <th style={th}>INGREDIENT</th><th style={{ ...th, textAlign: "right" }}>BASE ({isCapture ? captureBasePortions : basePortions})</th><th style={{ ...th, textAlign: "right" }}>SCALED</th>
             </tr></thead>
             <tbody>
-              {scaled.map((r) => (
+              {isCapture ? captureScaled.map((r) => (
+                <tr key={r.name} className="rowline">
+                  <td style={{ ...td, fontWeight: 600 }}>
+                    {r.isSub ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Link2 size={13} color={C.violet} />{r.name}</span> : r.name}
+                  </td>
+                  <td style={{ ...td, textAlign: "right", color: C.muted }}>{r.amount} {r.unit}</td>
+                  <td style={{ ...td, textAlign: "right", fontWeight: 700, color: C.indigo }}>{fmtCapture(r.s)} {r.unit}</td>
+                </tr>
+              )) : scaled.map((r) => (
                 <tr key={r.name} className="rowline">
                   <td style={{ ...td, fontWeight: 600 }}>{r.name}</td>
                   <td style={{ ...td, textAlign: "right", color: C.muted }}>{r.amount} {r.unit}</td>
@@ -1860,9 +2584,23 @@ const fmt = (n) => (Number.isInteger(n) ? n : n.toFixed(n < 10 ? 2 : 1));
 const PRODUCT_TO_INGREDIENT = {
   "Long Grain Rice": "Parboiled Rice",
   "Tomato Product": "Tomatoes (800 g tin)",
-  "Vegetable Oil": "Oil",
   "Onions": "Onions",
   "Seasoning Cube": "Seasoning Cube",
+  "Parboiled Rice": "Rice (Parboiled)",
+  "Tomato Paste": "Tomato Paste",
+  "Tatashe": "Tatashe (Red Bell Pepper)",
+  "Fresh Tomatoes": "Fresh Tomatoes",
+  "Scotch Bonnet": "Scotch Bonnet",
+  "White Onions": "White Onions",
+  "Vegetable Oil": "Vegetable Oil",
+  "Curry Powder": "Curry Powder",
+  "Thyme": "Thyme",
+  "Chicken Seasoning Powder": "Chicken Seasoning Powder",
+  "Bay Leaves": "Bay Leaves",
+  "Chicken Parts": "Chicken Parts",
+  "Fresh Ginger": "Fresh Ginger",
+  "Garlic": "Garlic",
+  "Salt": "Cooking Salt",
 };
 
 function Ingredients({ invoiceState, setInvoiceState, priceBumped, setPriceBumped, packPrices = {}, setPackPrices, go }) {
@@ -1871,11 +2609,21 @@ function Ingredients({ invoiceState, setInvoiceState, priceBumped, setPriceBumpe
 
   // catalogue rows carry their supplier/pack/unit context; price comes from shared packPrices
   const catalogue = [
-    { product: "Long Grain Rice", supplier: "Ade Foods Ltd", pack: "25 kg", unit: "kg", packQty: 25, move: priceBumped ? "▲ 7.9%" : "— 0%" },
-    { product: "Tomato Product", supplier: "Global Cash & Carry", pack: "6 × 800 g", unit: "kg", packQty: 4.8, move: "▲ 8.0%" },
-    { product: "Vegetable Oil", supplier: "Ade Foods Ltd", pack: "20 L", unit: "L", packQty: 20, move: "▲ 11.3%" },
-    { product: "Onions", supplier: "Market Fresh", pack: "10 kg", unit: "kg", packQty: 10, move: "— 0%" },
-    { product: "Seasoning Cube", supplier: "Global Cash & Carry", pack: "100 pcs", unit: "pc", packQty: 100, move: "— 0%" },
+    { product: "Parboiled Rice", supplier: "Ade Foods Ltd", pack: "25 kg bag", unit: "kg", packQty: 25, move: "▲ 8.7%" },
+    { product: "Tomato Paste", supplier: "Global Cash & Carry", pack: "2.2 kg tin", unit: "kg", packQty: 2.2, move: "— 0%" },
+    { product: "Tatashe", supplier: "Market Fresh", pack: "5 kg box", unit: "kg", packQty: 5, move: "— 0%" },
+    { product: "Fresh Tomatoes", supplier: "Market Fresh", pack: "6 kg box", unit: "kg", packQty: 6, move: "— 0%" },
+    { product: "Scotch Bonnet", supplier: "Market Fresh", pack: "2 kg box", unit: "kg", packQty: 2, move: "— 0%" },
+    { product: "White Onions", supplier: "Market Fresh", pack: "10 kg sack", unit: "kg", packQty: 10, move: "— 0%" },
+    { product: "Vegetable Oil", supplier: "Ade Foods Ltd", pack: "20 L drum", unit: "L", packQty: 20, move: "— 0%" },
+    { product: "Curry Powder", supplier: "Global Cash & Carry", pack: "100 g sachet", unit: "kg", packQty: 0.1, move: "— 0%" },
+    { product: "Thyme", supplier: "Global Cash & Carry", pack: "50 g sachet", unit: "kg", packQty: 0.05, move: "— 0%" },
+    { product: "Chicken Seasoning Powder", supplier: "Global Cash & Carry", pack: "100 g sachet", unit: "kg", packQty: 0.1, move: "— 0%" },
+    { product: "Bay Leaves", supplier: "Global Cash & Carry", pack: "50-leaf pack", unit: "leaf", packQty: 50, move: "— 0%" },
+    { product: "Chicken Parts", supplier: "Ade Foods Ltd", pack: "5 kg pack", unit: "kg", packQty: 5, move: "— 0%" },
+    { product: "Fresh Ginger", supplier: "Market Fresh", pack: "1 kg pack", unit: "kg", packQty: 1, move: "— 0%" },
+    { product: "Garlic", supplier: "Market Fresh", pack: "1 kg pack", unit: "kg", packQty: 1, move: "— 0%" },
+    { product: "Salt", supplier: "Global Cash & Carry", pack: "750 g pack", unit: "kg", packQty: 0.75, move: "— 0%" },
   ];
 
   const priceOf = (product) => {
@@ -1919,7 +2667,7 @@ function Ingredients({ invoiceState, setInvoiceState, priceBumped, setPriceBumpe
               const price = priceOf(r.product);
               const unitCost = price > 0 ? price / r.packQty : 0;
               const isEditing = editing === r.product;
-              const bumped = priceBumped && r.product === "Long Grain Rice";
+              const bumped = priceBumped && r.product === "Parboiled Rice";
               return (
                 <tr key={r.product} className="rowline" style={bumped ? { background: C.amberSoft } : undefined}>
                   <td style={{ ...td, fontWeight: 600 }}>{r.product}</td>
@@ -1950,7 +2698,7 @@ function Ingredients({ invoiceState, setInvoiceState, priceBumped, setPriceBumpe
           </tbody>
         </table>
         <div style={{ marginTop: 12, fontSize: 12, color: C.muted, display: "flex", alignItems: "center", gap: 6 }}>
-          <Info size={13} /> Prices feed straight into recipe costing. Salt is priced during recipe capture and isn't stocked as a catalogue line here.
+          <Info size={13} /> Prices feed directly into recipe and sub-recipe costing. Updating a pack price automatically recosts recipes that use that ingredient.
         </div>
       </div>
 
@@ -2038,7 +2786,7 @@ function Modal({ children, onClose }) {
 
 // ==================== SCREEN 11: REPORTS ====================
 function Reports({ priceBumped }) {
-  const trend = [31.5, 31.5, 32.0, 32.8, 33.2, 33.6, 34.0];
+  const trend = [46.0, 46.0, 46.8, 48.1, 48.7, 49.4, 50.0];
   const max = Math.max(...trend), min = Math.min(...trend);
   return (
     <div>
@@ -2046,18 +2794,18 @@ function Reports({ priceBumped }) {
       <p style={{ margin: "0 0 18px", color: C.muted, fontSize: 14 }}>Operational trends over the last 90 days. Illustrative demo data.</p>
       {priceBumped && (
         <div style={{ background: C.indigoSoft, border: `1px solid #c7d2fe`, borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: C.indigoDeep, display: "flex", gap: 8, alignItems: "center" }}>
-          <Info size={14} /> Reflects your recent Long Grain Rice invoice — 3 recipes recalculated.
+          <Info size={14} /> Reflects your recent Parboiled Rice invoice — 3 recipes recalculated.
         </div>
       )}
       <div style={{ display: "flex", gap: 14, marginBottom: 18 }}>
-        <Metric label="Recipes affected by price changes" value={priceBumped ? "8" : "7"} tone="amber" />
-        <Metric label="Highest increase" value="+11.3%" tone="red" />
-        <Metric label="Avg cost movement" value="+6.2%" tone="amber" />
+        <Metric label="Recipes affected by price changes" value="3" tone="amber" />
+        <Metric label="Highest increase" value="+8.7%" tone="red" />
+        <Metric label="Avg cost movement" value="+4.6%" tone="amber" />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16 }}>
         <div className="card" style={{ padding: 20 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Long Grain Rice — price trend</div>
-          <div style={{ fontSize: 13, color: C.muted, marginBottom: 16 }}>£31.50 → £34.00 (<span style={{ color: C.red, fontWeight: 700 }}>+7.9%</span>) per 25 kg</div>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Parboiled Rice — price trend</div>
+          <div style={{ fontSize: 13, color: C.muted, marginBottom: 16 }}>£46.00 → £50.00 (<span style={{ color: C.red, fontWeight: 700 }}>+8.7%</span>) per 25 kg bag</div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 12, height: 150, padding: "0 4px" }}>
             {trend.map((v, i) => {
               const h = 30 + ((v - min) / (max - min || 1)) * 110;
@@ -2072,7 +2820,7 @@ function Reports({ priceBumped }) {
         </div>
         <div className="card" style={{ padding: 20 }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Recipe batch-cost movement</div>
-          {[["Jollof Rice", "£42.80", "£45.10", "+5.4%"], ["Fried Rice", "£23.10", "£24.15", "+4.5%"], ["Egusi Soup", "£38.40", "£41.90", "+9.1%"]].map((r, i) => (
+          {[["Jollof Rice", "£185.93", "£189.93", "+2.2%"], ["Fried Rice", "£23.10", "£24.15", "+4.5%"], ["Chicken Stock", "£30.15", "£31.41", "+4.2%"]].map((r, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", padding: "11px 0", borderTop: i ? `1px solid ${C.line}` : "none" }}>
               <div style={{ fontWeight: 600, fontSize: 13.5, flex: 1 }}>{r[0]}</div>
               <div style={{ fontSize: 12.5, color: C.muted, marginRight: 12 }}>{r[1]} → {r[2]}</div>
@@ -2087,10 +2835,10 @@ function Reports({ priceBumped }) {
 
 // ==================== TEAM (staff members — shown under Settings) ====================
 const TEAM_MEMBERS = [
-  { name: "Amaka Okafor", role: "Owner / Admin", email: "amaka@kitchen.co.uk", phone: "07700 900123", status: "Active", since: "Jan 2024" },
-  { name: "David Mensah", role: "Manager / Head Chef", email: "david@kitchen.co.uk", phone: "07700 900456", status: "Active", since: "Mar 2024" },
-  { name: "Grace Adeyemi", role: "Kitchen Staff", email: "grace@kitchen.co.uk", phone: "07700 900789", status: "Active", since: "Jun 2024" },
-  { name: "Tunde Bello", role: "Kitchen Staff", email: "tunde@kitchen.co.uk", phone: "07700 900234", status: "Invited", since: "—" },
+  { name: "Amaka Okafor", role: "Owner / Admin", email: "amaka@amaskitchen.co.uk", phone: "07700 900123", status: "Active", since: "Jan 2024" },
+  { name: "David Mensah", role: "Manager / Head Chef", email: "david@amaskitchen.co.uk", phone: "07700 900456", status: "Active", since: "Mar 2024" },
+  { name: "Grace Adeyemi", role: "Kitchen Staff", email: "grace@amaskitchen.co.uk", phone: "07700 900789", status: "Active", since: "Jun 2024" },
+  { name: "Tunde Bello", role: "Kitchen Staff", email: "tunde@amaskitchen.co.uk", phone: "07700 900234", status: "Invited", since: "—" },
 ];
 
 function Team() {
@@ -2205,13 +2953,7 @@ function SettingsView({ learned, profile, setProfile }) {
   const [tab, setTab] = useState("knowledge");
   const [draft, setDraft] = useState(profile || {});
   const [saved, setSaved] = useState(false);
-  const fallback = [
-    { k: "One bag of rice", v: "25 kg" },
-    { k: "Big tin (tomatoes)", v: "800 g tin" },
-    { k: "Half a bottle of oil", v: "2.5 L" },
-    { k: "Derica", v: "0.75 kg" },
-  ];
-  const items = learned && learned.length ? learned.map(x => ({ k: x.k, v: x.v })) : fallback;
+  const items = learned && learned.length ? learned.map(x => ({ k: x.k, v: x.v })) : LEARNED_MEANINGS_SEED;
   const tabs = [["knowledge", "Business knowledge"], ["team", "Team"], ["profile", "Business profile"]];
   const profileFields = [
     ["name", "Business name"], ["type", "Business type"], ["cuisine", "Main cuisine"],
